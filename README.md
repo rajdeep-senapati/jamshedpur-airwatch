@@ -14,7 +14,7 @@ Outdoor AQI alone cannot determine whether an individual needs an air purifier. 
 
 ## Project status
 
-**Day 1 — source validated for a small test request.** A seven-day request returned 168 hourly records, with returned grid coordinates near Jamshedpur and timezone `Asia/Kolkata`. Historical coverage and individual pollutant completeness will be checked as the pipeline develops. The source does not require an API key for this endpoint.
+**Day 1 — source validated and first Silver transformation implemented.** A seven-day request returned 168 hourly records, with returned grid coordinates near Jamshedpur and timezone `Asia/Kolkata`. Historical coverage and individual pollutant completeness will be checked as the pipeline develops. The source does not require an API key for this endpoint.
 
 ## Current source
 
@@ -27,7 +27,7 @@ Outdoor AQI alone cannot determine whether an individual needs an air purifier. 
 ## Planned pipeline
 
 1. **Bronze** — retain raw API responses and ingestion metadata for traceability.
-2. **Silver** — validate schema, parse timestamps, normalize fields, check nulls/ranges, and deduplicate.
+2. **Silver** — validate schema, parse timestamps, normalize fields, check nulls, and deduplicate.
 3. **Gold** — publish analysis-ready tables for hourly/daily trends, pollutant completeness, and AQI summaries.
 4. **Analysis** — use Spark SQL to explore variation and patterns, clearly stating that the source is model-based.
 5. **Quality and automation** — add tests and GitHub Actions checks so changes are repeatable.
@@ -37,11 +37,12 @@ Outdoor AQI alone cannot determine whether an individual needs an air purifier. 
 ```text
 data/
   raw/       # generated source extracts (not committed)
-  silver/    # cleaned data (not committed)
-  gold/      # analytical outputs (not committed)
+  processed/
+    silver/  # cleaned Parquet dataset (not committed)
 src/airwatch/
 scripts/
   ingest_open_meteo.py
+  transform_silver.py
 tests/
 notebooks/
 .github/workflows/
@@ -81,6 +82,20 @@ python scripts/ingest_open_meteo.py --past-days 7
 ```
 
 The script makes one API request and writes a timestamped JSON file under `data/raw/`. Use `--past-days 1` for a smaller test. The initial script intentionally caps the window at seven days.
+
+### Transform raw JSON into Silver Parquet
+
+```powershell
+python scripts/transform_silver.py
+```
+
+By default, the transformation selects the latest raw extract in `data/raw/`, flattens the parallel hourly arrays into one row per timestamp, parses the local timestamp, and checks for invalid timestamps, duplicate timestamps, and null AQI/pollutant values before writing. The output is partitioned by date under `data/processed/silver/air_quality_hourly/`. The current first version overwrites this Silver output on each run; incremental merge logic will be added later.
+
+You can choose a specific input or output path:
+
+```powershell
+python scripts/transform_silver.py --input data/raw/your_file.json --output data/processed/silver/air_quality_hourly
+```
 
 No API key or `.env` file is needed for this source. If you previously created a local `.env` file for API Express, keep it out of Git and remove the unused key from it when convenient. Never commit secrets.
 
