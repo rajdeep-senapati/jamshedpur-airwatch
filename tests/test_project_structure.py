@@ -6,8 +6,10 @@ def test_project_package_exists() -> None:
     assert (Path(__file__).parents[1] / "src" / "airwatch" / "__init__.py").is_file()
 
 
-def test_env_example_does_not_contain_a_real_key() -> None:
-    """The committed example must be a placeholder, not a credential."""
+def test_env_example_documents_no_api_key_requirement() -> None:
+    """The example must accurately document the API requirements."""
     example = Path(__file__).parents[1] / ".env.example"
     assert example.is_file()
-    assert "your_api_key_here" in example.read_text(encoding="utf-8") or "AIR_QUALITY_API_KEY=" in example.read_text(encoding="utf-8")
+    content = example.read_text(encoding="utf-8")
+    assert "does not require an API key" in content
+    assert "intentionally contains none" in content
