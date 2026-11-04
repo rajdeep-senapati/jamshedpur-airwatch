@@ -10,6 +10,7 @@ def test_env_example_documents_no_api_key_requirement() -> None:
     """The example must accurately document the API requirements."""
     example = Path(__file__).parents[1] / ".env.example"
     assert example.is_file()
+
     content = example.read_text(encoding="utf-8")
     assert "does not require an API key" in content
     assert "intentionally contains none" in content
