@@ -1,117 +1,161 @@
-# Jamshedpur AirWatch
+# Jamshedpur AirWatch 🌫️
 
-A zero-cost, portfolio-grade data engineering project exploring air-quality trends around a practical question:
+A reproducible **data engineering and analytics project** that explores hourly and daily air-quality trends for Jamshedpur, Jharkhand.
 
-> **Do I need an air purifier in Jamshedpur?**
+The project turns public air-quality data into a Bronze → Silver → Gold pipeline using Python and PySpark, then presents the resulting analytics in an interactive Streamlit dashboard.
 
-The pipeline uses Python and PySpark to ingest, validate, transform, and analyze public air-quality data in Bronze, Silver, and Gold layers.
+> **Important data limitation:** Open-Meteo provides model-based, grid-level estimates. These are not confirmed readings from a physical monitoring station. Outdoor AQI alone also cannot determine whether a person needs an air purifier.
 
-## Important interpretation note
+## Dashboard
 
-The initial source is the **Open-Meteo Air Quality API**. It returns model-based, grid-level estimates for the coordinates near Jamshedpur, not necessarily measurements from a physical monitoring station. We will label these values accordingly and will not present them as station observations.
+The Streamlit dashboard includes:
+- KPI cards for average and maximum US AQI, average PM2.5, and unhealthy hours.
+- Date-range filtering.
+- Daily average and maximum AQI trends.
+- Average pollutant concentration comparisons.
+- Daily AQI category distribution.
+- A daily analytics table with CSV download.
 
-Outdoor AQI alone cannot determine whether an individual needs an air purifier. Indoor air quality, ventilation, time spent indoors, and individual health considerations also matter. This project is an analysis of available outdoor data, not medical advice or a definitive purifier recommendation.
+## Architecture
 
-## Project status
-
-**Day 1 — source validated and first Silver transformation implemented.** A seven-day request returned 168 hourly records, with returned grid coordinates near Jamshedpur and timezone `Asia/Kolkata`. Historical coverage and individual pollutant completeness will be checked as the pipeline develops. The source does not require an API key for this endpoint.
-
-## Current source
-
-- API documentation: https://open-meteo.com/en/docs/air-quality-api
-- Endpoint: `https://air-quality-api.open-meteo.com/v1/air-quality`
-- Initial variables: PM2.5, PM10, US AQI, European AQI, nitrogen dioxide, ozone, sulphur dioxide, and carbon monoxide.
-- Initial extraction window: up to seven past days for a small, reproducible test.
-- The ingestion script stores the source response and retrieval metadata in `data/raw/`; generated data is excluded from Git.
-
-## Planned pipeline
-
-1. **Bronze** — retain raw API responses and ingestion metadata for traceability.
-2. **Silver** — validate schema, parse timestamps, normalize fields, check nulls, and deduplicate.
-3. **Gold** — publish analysis-ready tables for hourly/daily trends, pollutant completeness, and AQI summaries.
-4. **Analysis** — use Spark SQL to explore variation and patterns, clearly stating that the source is model-based.
-5. **Quality and automation** — add tests and GitHub Actions checks so changes are repeatable.
-
-## Repository layout
-
-```text
-data/
-  raw/       # generated source extracts (not committed)
-  processed/
-    silver/  # cleaned Parquet dataset (not committed)
-src/airwatch/
-scripts/
-  ingest_open_meteo.py
-  transform_silver.py
-tests/
-notebooks/
-.github/workflows/
+```mermaid
+flowchart LR
+    A[Open-Meteo Air Quality API] --> B[Bronze: Raw JSON]
+    B --> C[Silver: PySpark validation and Parquet]
+    C --> D[Gold: Daily aggregates and AQI categories]
+    D --> E[Streamlit dashboard]
+    F[pytest] --> G[GitHub Actions CI]
 ```
+
+### Data layers
+
+| Layer | Purpose | Output |
+|---|---|---|
+| Bronze | Preserve the API response and retrieval metadata | `data/raw/*.json` |
+| Silver | Flatten hourly arrays, parse timestamps, validate records and remove duplicate timestamps | `data/silver/air_quality_hourly/` |
+| Gold | Aggregate hourly records by date, calculate pollutant averages, AQI ranges and unhealthy hours | `data/gold/daily_air_quality/` |
+
+Generated JSON and Parquet data are excluded from Git. Run the pipeline locally to create the datasets before launching the dashboard.
 
 ## Technology
 
-- Python 3.11
-- PySpark / Spark SQL
-- Requests
-- pytest
-- GitHub Actions
+- Python 3.11+
+- PySpark 3.5
+- Apache Spark SQL
+- pandas
+- Streamlit
+- Plotly
 - Open-Meteo Air Quality API
+- pytest and GitHub Actions
 
-## Getting started
+## Run locally
 
-### Prerequisites
+### 1. Prerequisites
 
-Install Python 3.11, Git, and a Java version compatible with the installed PySpark version. The local Spark test was successful on the project author's Windows setup with Java 20.
+Install Git, Python 3.11 or later, and Java 17. The pipeline has been developed and tested in Ubuntu 24.04 on WSL.
 
-### Set up the environment
+### 2. Clone and set up
 
-**Windows PowerShell**
-```powershell
+```bash
 git clone https://github.com/rajdeep-senapati/jamshedpur-airwatch.git
 cd jamshedpur-airwatch
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
+
+python3 -m venv .venv
+source .venv/bin/activate
+
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### Ingest a small raw extract
+Configure PySpark to use the active Python environment:
 
-```powershell
+```bash
+export PYSPARK_PYTHON="$(which python)"
+export PYSPARK_DRIVER_PYTHON="$(which python)"
+```
+
+### 3. Run the pipeline
+
+**Bronze — ingest raw hourly data**
+
+```bash
 python scripts/ingest_open_meteo.py --past-days 7
 ```
 
-The script makes one API request and writes a timestamped JSON file under `data/raw/`. Use `--past-days 1` for a smaller test. The initial script intentionally caps the window at seven days.
+The API endpoint used by this project does not require an API key. The initial ingestion script supports a window of 1–7 past days.
 
-### Transform raw JSON into Silver Parquet
+**Silver — validate and transform**
 
-```powershell
+```bash
 python scripts/transform_silver.py
 ```
 
-By default, the transformation selects the latest raw extract in `data/raw/`, flattens the parallel hourly arrays into one row per timestamp, parses the local timestamp, and checks for invalid timestamps, duplicate timestamps, and null AQI/pollutant values before writing. The output is partitioned by date under `data/processed/silver/air_quality_hourly/`. The current first version overwrites this Silver output on each run; incremental merge logic will be added later.
+The script selects the latest raw extract, validates hourly arrays and timestamps, checks duplicate timestamps and null AQI/pollutant values, and writes date-partitioned Parquet data.
 
-You can choose a specific input or output path:
+**Gold — build daily analytics**
 
-```powershell
-python scripts/transform_silver.py --input data/raw/your_file.json --output data/processed/silver/air_quality_hourly
+```bash
+python scripts/build_gold.py
 ```
 
-No API key or `.env` file is needed for this source. If you previously created a local `.env` file for API Express, keep it out of Git and remove the unused key from it when convenient. Never commit secrets.
+This creates daily averages, minimum and maximum US AQI, pollutant averages, unhealthy-hour counts, and AQI categories.
 
-## Data provenance and reproducibility
+### 4. Launch the dashboard
 
-Every raw extract records the source URL, request parameters, retrieval timestamp, requested and returned coordinates, timezone, and record count. Source responses and transformation outputs are intentionally excluded from Git to avoid committing generated files and to keep the repository reproducible.
+Run from the repository root after generating the Gold dataset:
 
-## Success criteria
+```bash
+python -m streamlit run dashboard/app.py
+```
 
-- A documented, reproducible ingestion path from a verified source.
-- Explicit schema and data-quality checks.
-- Deterministic Bronze-to-Silver-to-Gold transformations.
-- Meaningful Spark SQL analysis with documented source limitations.
-- Automated tests and a clean GitHub Actions run.
-- No unsupported claim that modelled grid-level data is a physical station reading or that outdoor AQI alone decides purifier need.
+Open the local URL printed by Streamlit (normally http://localhost:8501).
+
+### 5. Run tests
+
+```bash
+PYTHONPATH=. pytest -q
+```
+
+The tests cover project structure, AQI category boundaries, and Gold transformation behavior. GitHub Actions runs the test suite on pushes and pull requests.
+
+## Data source and interpretation
+
+- **Provider:** [Open-Meteo Air Quality API](https://open-meteo.com/en/docs/air-quality-api)
+- **Location:** Jamshedpur, Jharkhand, India
+- **Requested coordinates:** 22.8046° N, 86.2029° E
+- **Timezone:** Asia/Kolkata
+- **Hourly variables:** PM2.5, PM10, US AQI, European AQI, nitrogen dioxide, ozone, sulphur dioxide, and carbon monoxide.
+
+The returned coordinates may represent the nearest model grid cell rather than the exact requested point. Concentrations are shown in the source-reported units. US AQI categories use the standard US AQI bands; European AQI values are a separate scale and should not be compared numerically with US AQI.
+
+## Repository structure
+
+```text
+.
+├── .github/workflows/ci.yml
+├── dashboard/
+│   ├── app.py
+│   ├── charts.py
+│   └── data_loader.py
+├── data/
+│   ├── raw/       # generated JSON; not committed
+│   ├── silver/    # generated hourly Parquet; not committed
+│   └── gold/      # generated daily Parquet; not committed
+├── notebooks/
+├── scripts/
+│   ├── ingest_open_meteo.py
+│   ├── transform_silver.py
+│   └── build_gold.py
+├── src/airwatch/
+├── tests/
+├── requirements.txt
+└── README.md
+```
+
+## Scope and next improvements
+
+The current implementation is a reproducible batch pipeline with a dashboard over the generated Gold dataset. Potential next steps include scheduled ingestion, longer historical coverage where available, incremental processing, and deployment with a managed data artifact.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
